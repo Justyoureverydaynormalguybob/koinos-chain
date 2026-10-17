@@ -32,7 +32,10 @@
 
 #include <koinos/contracts/token/token.pb.h>
 
+#include <koinos/chain/mldsa.hpp>
+
 #include <koinos/tests/contracts.hpp>
+#include <koinos/tests/mldsa_vectors.hpp>
 #include <koinos/tests/util.hpp>
 
 #include <koinos/util/base58.hpp>
@@ -1177,6 +1180,155 @@ BOOST_AUTO_TEST_CASE( check_authority )
 
     trx.clear_signatures();
     BOOST_CHECK( !chain::system_call::check_authority( ctx, koinos::chain::contract_call, foo_account_string ) );
+  }
+  KOINOS_CATCH_LOG_AND_RETHROW( info )
+}
+
+BOOST_AUTO_TEST_CASE( ml_dsa_44_signatures )
+{
+  try
+  {
+    using namespace koinos::tests::mldsa;
+
+    auto bytes = []( const char* h )
+    {
+      return *h ? util::from_hex< std::string >( "0x"s + h ) : std::string();
+    };
+    auto check_authority = [ & ]( const std::string& account )
+    {
+      return chain::system_call::check_authority( ctx, chain::contract_call, account );
+    };
+
+    BOOST_TEST_MESSAGE( "NIST ACVP ML-DSA-44 sigVer vectors against the vendored verifier" );
+    std::size_t vectors = 0, must_reject = 0;
+    for( const auto& v: acvp_vectors )
+    {
+      bool ok = chain::mldsa::verify( bytes( v.signature_hex ),
+                                      bytes( v.message_hex ),
+                                      bytes( v.context_hex ),
+                                      bytes( v.public_key_hex ) );
+      BOOST_CHECK_MESSAGE( ok == v.test_passed, "ACVP tcId " << v.tc_id << " (" << v.reason << ")" );
+      vectors++;
+      if( !v.test_passed )
+        must_reject++;
+    }
+    BOOST_CHECK_EQUAL( vectors, 15 );
+    BOOST_CHECK_EQUAL( must_reject, 12 );
+
+    const auto& a  = native_vectors[ 0 ]; // key A, native context
+    const auto& b  = native_vectors[ 1 ]; // key B, native context
+    const auto& ac = native_vectors[ 2 ]; // key A, signed with the account contract's context instead
+
+    auto pk_a = bytes( a.public_key_hex ), sig_a = bytes( a.signature_hex ), addr_a = bytes( a.address_hex );
+    auto pk_b = bytes( b.public_key_hex ), sig_b = bytes( b.signature_hex ), addr_b = bytes( b.address_hex );
+    auto tx_id = bytes( a.tx_id_hex );
+    BOOST_REQUIRE_EQUAL( pk_a.size(), chain::mldsa::public_key_size );
+    BOOST_REQUIRE_EQUAL( sig_a.size(), chain::mldsa::signature_size );
+    BOOST_REQUIRE_EQUAL( addr_a.size(), 25 );
+    BOOST_REQUIRE_EQUAL( tx_id.size(), 34 );
+
+    BOOST_TEST_MESSAGE( "Address derivation matches the JavaScript side" );
+    BOOST_CHECK_EQUAL( util::to_hex( chain::mldsa::address_bytes( pk_a ) ), util::to_hex( addr_a ) );
+    BOOST_CHECK_EQUAL( util::to_hex( chain::mldsa::address_bytes( pk_b ) ), util::to_hex( addr_b ) );
+
+    auto entry = []( const std::string& pk, const std::string& sig )
+    {
+      return std::string( 1, char( chain::mldsa::entry_tag ) ) + pk + sig;
+    };
+    auto entry_a = entry( pk_a, sig_a );
+    BOOST_REQUIRE_EQUAL( entry_a.size(), chain::mldsa::entry_size );
+    BOOST_REQUIRE( chain::mldsa::is_entry( entry_a ) );
+
+    protocol::transaction trx;
+    trx.set_id( tx_id );
+
+    auto set_signatures = [ & ]( std::vector< std::string > sigs )
+    {
+      trx.clear_signatures();
+      for( const auto& s: sigs )
+        trx.add_signatures( s );
+      ctx.set_transaction( trx );
+    };
+
+    BOOST_TEST_MESSAGE( "A 3733-byte entry authorizes its address and nobody else" );
+    set_signatures( { entry_a } );
+    BOOST_CHECK( check_authority( addr_a ) );
+    BOOST_CHECK( !check_authority( addr_b ) );
+
+    BOOST_TEST_MESSAGE( "A flipped bit in the signature, the key or the transaction id is rejected" );
+    {
+      auto bad = entry_a;
+      bad[ 1 + chain::mldsa::public_key_size + 100 ] ^= 1;
+      set_signatures( { bad } );
+      BOOST_CHECK( !check_authority( addr_a ) );
+    }
+    {
+      auto bad = entry_a;
+      bad[ 5 ] ^= 1;
+      set_signatures( { bad } );
+      BOOST_CHECK( !check_authority( addr_a ) );
+    }
+    {
+      auto other_id = tx_id;
+      other_id[ 33 ] ^= 1;
+      trx.set_id( other_id );
+      set_signatures( { entry_a } );
+      BOOST_CHECK( !check_authority( addr_a ) );
+      trx.set_id( tx_id );
+    }
+
+    BOOST_TEST_MESSAGE( "A signature made with the account contract's context does not authorize the native path" );
+    set_signatures( { entry( pk_a, bytes( ac.signature_hex ) ) } );
+    BOOST_CHECK( !check_authority( addr_a ) );
+
+    BOOST_TEST_MESSAGE( "Other tags and sizes fail exactly as they did before" );
+    {
+      auto bad = entry_a;
+      bad[ 0 ]  = 0x02;
+      set_signatures( { bad } );
+      KOINOS_CHECK_THROW( check_authority( addr_a ), chain::invalid_signature );
+    }
+    set_signatures( { entry_a.substr( 0, chain::mldsa::entry_size - 1 ) } );
+    KOINOS_CHECK_THROW( check_authority( addr_a ), chain::invalid_signature );
+    set_signatures( { entry_a + "\0"s } );
+    KOINOS_CHECK_THROW( check_authority( addr_a ), chain::invalid_signature );
+
+    BOOST_TEST_MESSAGE( "65-byte secp256k1 entries are unchanged and mix with ML-DSA entries in either order" );
+    auto foo_key  = crypto::private_key::regenerate( crypto::hash( crypto::multicodec::sha2_256, "foo"s ) );
+    auto foo_addr = foo_key.get_public_key().to_address_bytes();
+    auto secp_sig =
+      util::converter::as< std::string >( foo_key.sign_compact( util::converter::to< crypto::multihash >( tx_id ) ) );
+    BOOST_REQUIRE_EQUAL( secp_sig.size(), 65 );
+
+    set_signatures( { secp_sig } );
+    BOOST_CHECK( check_authority( foo_addr ) );
+    BOOST_CHECK( !check_authority( addr_a ) );
+
+    set_signatures( { secp_sig, entry_a } );
+    BOOST_CHECK( check_authority( foo_addr ) );
+    BOOST_CHECK( check_authority( addr_a ) );
+    BOOST_CHECK( !check_authority( addr_b ) );
+
+    set_signatures( { entry( pk_b, sig_b ), secp_sig, entry_a } );
+    BOOST_CHECK( check_authority( foo_addr ) );
+    BOOST_CHECK( check_authority( addr_a ) );
+    BOOST_CHECK( check_authority( addr_b ) );
+
+    BOOST_TEST_MESSAGE( "An ML-DSA entry is charged three recoveries' worth of compute" );
+    uint64_t recovery = ctx.get_compute_bandwidth( "recover_public_key" );
+    BOOST_REQUIRE_GT( recovery, 0 );
+
+    set_signatures( { secp_sig } );
+    auto used = ctx.resource_meter().compute_bandwidth_used();
+    BOOST_CHECK( check_authority( foo_addr ) );
+    auto secp_cost = ctx.resource_meter().compute_bandwidth_used() - used;
+
+    set_signatures( { entry_a } );
+    used = ctx.resource_meter().compute_bandwidth_used();
+    BOOST_CHECK( check_authority( addr_a ) );
+    auto mldsa_cost = ctx.resource_meter().compute_bandwidth_used() - used;
+
+    BOOST_CHECK_EQUAL( mldsa_cost - secp_cost, ( chain::mldsa::verify_cost_in_recoveries - 1 ) * recovery );
   }
   KOINOS_CATCH_LOG_AND_RETHROW( info )
 }

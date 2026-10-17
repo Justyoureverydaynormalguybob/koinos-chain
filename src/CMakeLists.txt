@@ -1,9 +1,28 @@
+# ML-DSA-44 (FIPS 204) verifier: the PQ-Crystals reference implementation, vendored unmodified
+# (see koinos/chain/pq/PROVENANCE.md). Plain C, no formatting target, verify-only at runtime.
+add_library(koinos_pq STATIC
+  koinos/chain/pq/fips202.c
+  koinos/chain/pq/ntt.c
+  koinos/chain/pq/packing.c
+  koinos/chain/pq/poly.c
+  koinos/chain/pq/polyvec.c
+  koinos/chain/pq/randombytes.c
+  koinos/chain/pq/reduce.c
+  koinos/chain/pq/rounding.c
+  koinos/chain/pq/sign.c
+  koinos/chain/pq/symmetric-shake.c)
+
+target_compile_definitions(koinos_pq PRIVATE DILITHIUM_MODE=2)
+target_include_directories(koinos_pq PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/koinos/chain/pq)
+set_target_properties(koinos_pq PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+
 add_library(chain
   koinos/chain/chronicler.cpp
   koinos/chain/controller.cpp
   koinos/chain/execution_context.cpp
   koinos/chain/host_api.cpp
   koinos/chain/indexer.cpp
+  koinos/chain/mldsa.cpp
   koinos/chain/proto_utils.cpp
   koinos/chain/rectify.cpp
   koinos/chain/resource_meter.cpp
@@ -19,6 +38,7 @@ add_library(chain
   koinos/chain/execution_context.hpp
   koinos/chain/host_api.hpp
   koinos/chain/indexer.hpp
+  koinos/chain/mldsa.hpp
   koinos/chain/proto_utils.hpp
   koinos/chain/rectify.hpp
   koinos/chain/resource_meter.hpp
@@ -38,7 +58,8 @@ target_link_libraries(
       Koinos::log
       Koinos::util
       Koinos::mq
-      vm_manager)
+      vm_manager
+      koinos_pq)
 
 target_include_directories(
   chain

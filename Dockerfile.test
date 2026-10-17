@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+# Builds koinos-chain with its unit tests and runs them. Same toolchain as the release Dockerfile.
+#
+#   DOCKER_BUILDKIT=1 docker build -f Dockerfile.test --progress=plain -t koinos-chain-tests .
+#
+# Hunter's package cache and ccache live in BuildKit cache mounts, so the first run pays for Boost,
+# gRPC, RocksDB and friends (30-60 minutes) and later runs only recompile koinos-chain itself.
+FROM alpine:3.18 AS builder
+
+RUN apk update && \
+    apk add  \
+        gcc \
+        g++ \
+        ccache \
+        musl-dev \
+        linux-headers \
+        libgmpxx \
+        cmake \
+        make \
+        git
+
+ADD . /build
+WORKDIR /build
+
+ENV CC gcc
+ENV CXX g++
+ENV CMAKE_C_COMPILER_LAUNCHER ccache
+ENV CMAKE_CXX_COMPILER_LAUNCHER ccache
+ENV CCACHE_DIR /cache/ccache
+ENV HUNTER_ROOT /cache/hunter
+
+RUN --mount=type=cache,target=/cache \
+    git submodule update --init --recursive && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -S . -B /build/out && \
+    cmake --build /build/out --config Release --parallel 6 && \
+    cd /build/out && ./tests/chain_tests --log_level=test_suite --report_level=short
+
+FROM alpine:latest
+RUN apk update && \
+    apk add \
+        musl \
+        libstdc++
+COPY --from=builder /build/out/src/koinos_chain /usr/local/bin
+ENTRYPOINT [ "/usr/local/bin/koinos_chain" ]

@@ -12,6 +12,7 @@
 #include <koinos/chain/events.pb.h>
 #include <koinos/chain/execution_context.hpp>
 #include <koinos/chain/host_api.hpp>
+#include <koinos/chain/mldsa.hpp>
 #include <koinos/chain/proto_utils.hpp>
 #include <koinos/chain/session.hpp>
 #include <koinos/chain/state.hpp>
@@ -1510,9 +1511,31 @@ THUNK_DEFINE( check_authority_result,
 
     for( const auto& sig: trx->signatures() )
     {
-      auto signer_address = util::converter::to< crypto::public_key >(
-                              system_call::recover_public_key( context, ecdsa_secp256k1, sig, trx->id(), true ) )
-                              .to_address_bytes();
+      std::string signer_address;
+
+      if( mldsa::is_entry( sig ) )
+      {
+        // ML-DSA-44 entry: 0x01 || public key || signature, signed over the transaction id with the
+        // fixed context (see mldsa.hpp). Native code outside the metered VM, so charge explicitly.
+        context.resource_meter().use_compute_bandwidth( mldsa::verify_cost_in_recoveries
+                                                        * context.get_compute_bandwidth( "recover_public_key" ) );
+
+        std::string_view public_key( sig.data() + 1, mldsa::public_key_size );
+        std::string_view signature( sig.data() + 1 + mldsa::public_key_size, mldsa::signature_size );
+
+        // An entry that does not verify authorizes nobody; it is skipped like a signature by another key.
+        if( !mldsa::verify( signature, trx->id(), mldsa::transaction_context, public_key ) )
+          continue;
+
+        signer_address = mldsa::address_bytes( public_key );
+      }
+      else
+      {
+        signer_address = util::converter::to< crypto::public_key >(
+                           system_call::recover_public_key( context, ecdsa_secp256k1, sig, trx->id(), true ) )
+                           .to_address_bytes();
+      }
+
       authorized = ( signer_address == account );
       if( authorized )
         break;
