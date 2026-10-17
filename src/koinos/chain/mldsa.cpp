@@ -8,16 +8,16 @@
 
 extern "C"
 {
-// Vendored PQ-Crystals reference implementation, built with DILITHIUM_MODE=2 (ML-DSA-44).
-// Declared here rather than by including the vendored headers so their short macro names
-// (N, Q, K, L, ...) do not leak into the chain's namespace.
-int pqcrystals_dilithium2_ref_verify( const uint8_t* sig,
-                                      size_t siglen,
-                                      const uint8_t* m,
-                                      size_t mlen,
-                                      const uint8_t* ctx,
-                                      size_t ctxlen,
-                                      const uint8_t* pk );
+  // Vendored PQ-Crystals reference implementation, built with DILITHIUM_MODE=2 (ML-DSA-44).
+  // Declared here rather than by including the vendored headers so their short macro names
+  // (N, Q, K, L, ...) do not leak into the chain's namespace.
+  int pqcrystals_dilithium2_ref_verify( const uint8_t* sig,
+                                        size_t siglen,
+                                        const uint8_t* m,
+                                        size_t mlen,
+                                        const uint8_t* ctx,
+                                        size_t ctxlen,
+                                        const uint8_t* pk );
 }
 
 namespace koinos::chain::mldsa {

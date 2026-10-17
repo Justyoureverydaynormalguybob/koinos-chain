@@ -22,12 +22,12 @@ RUN apk update && \
 ADD . /build
 WORKDIR /build
 
-ENV CC gcc
-ENV CXX g++
-ENV CMAKE_C_COMPILER_LAUNCHER ccache
-ENV CMAKE_CXX_COMPILER_LAUNCHER ccache
-ENV CCACHE_DIR /cache/ccache
-ENV HUNTER_ROOT /cache/hunter
+ENV CC=gcc
+ENV CXX=g++
+ENV CMAKE_C_COMPILER_LAUNCHER=ccache
+ENV CMAKE_CXX_COMPILER_LAUNCHER=ccache
+ENV CCACHE_DIR=/cache/ccache
+ENV HUNTER_ROOT=/cache/hunter
 
 RUN --mount=type=cache,target=/cache \
     git submodule update --init --recursive && \

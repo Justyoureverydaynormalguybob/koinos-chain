@@ -1257,19 +1257,19 @@ BOOST_AUTO_TEST_CASE( ml_dsa_44_signatures )
 
     BOOST_TEST_MESSAGE( "A flipped bit in the signature, the key or the transaction id is rejected" );
     {
-      auto bad = entry_a;
+      auto bad                                        = entry_a;
       bad[ 1 + chain::mldsa::public_key_size + 100 ] ^= 1;
       set_signatures( { bad } );
       BOOST_CHECK( !check_authority( addr_a ) );
     }
     {
-      auto bad = entry_a;
+      auto bad  = entry_a;
       bad[ 5 ] ^= 1;
       set_signatures( { bad } );
       BOOST_CHECK( !check_authority( addr_a ) );
     }
     {
-      auto other_id = tx_id;
+      auto other_id   = tx_id;
       other_id[ 33 ] ^= 1;
       trx.set_id( other_id );
       set_signatures( { entry_a } );
@@ -1284,7 +1284,7 @@ BOOST_AUTO_TEST_CASE( ml_dsa_44_signatures )
     BOOST_TEST_MESSAGE( "Other tags and sizes fail exactly as they did before" );
     {
       auto bad = entry_a;
-      bad[ 0 ]  = 0x02;
+      bad[ 0 ] = 0x02;
       set_signatures( { bad } );
       KOINOS_CHECK_THROW( check_authority( addr_a ), chain::invalid_signature );
     }

@@ -21,8 +21,8 @@ namespace koinos::chain::mldsa {
  * 4 byte double sha256 checksum. 65 byte entries are unchanged.
  */
 
-constexpr std::size_t public_key_size = 1312;
-constexpr std::size_t signature_size  = 2420;
+constexpr std::size_t public_key_size = 1'312;
+constexpr std::size_t signature_size  = 2'420;
 constexpr std::size_t entry_size      = 1 + public_key_size + signature_size; // 3733
 constexpr std::uint8_t entry_tag      = 0x01;
 
